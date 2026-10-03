@@ -118,12 +118,33 @@ async function load(){
   sha = f.sha; cfg = JSON.parse(b64d(f.content));
   render(); loadResults();
 }
-async function save(msg){
-  try{
-    const r = await gh("/contents/planning.json", {method:"PUT", body: JSON.stringify({
-      message: "Planning : "+msg, sha, content: b64e(JSON.stringify(cfg, null, 2)+"\n")})});
-    sha = r.content.sha; toast("Enregistré ✓");
-  }catch(e){ toast("Erreur : "+e.message); await load(); }
+// Clics rapides : on regroupe les changements (0,8 s) et on n'envoie qu'une écriture à la fois.
+// Si GitHub répond 409 (version du fichier changée entre-temps), on relit sa version et on renvoie la nôtre.
+let saveTimer = null, saveMsgs = [], saving = null;
+function save(msg){
+  saveMsgs.push(msg); clearTimeout(saveTimer);
+  saveTimer = setTimeout(flush, 800);
+}
+async function flush(){
+  if(saving){ await saving; }
+  if(!saveMsgs.length) return;
+  const msg = saveMsgs.join(", "); saveMsgs = [];
+  saving = (async () => {
+    for(let attempt = 0; attempt < 3; attempt++){
+      try{
+        const r = await gh("/contents/planning.json", {method:"PUT", body: JSON.stringify({
+          message: "Planning : "+msg, sha, content: b64e(JSON.stringify(cfg, null, 2)+"\n")})});
+        sha = r.content.sha; toast("Enregistré ✓"); return;
+      }catch(e){
+        if(e.message.startsWith("409") || e.message.startsWith("422")){
+          sha = (await gh("/contents/planning.json")).sha; continue;   // garde nos réglages, nouvelle version
+        }
+        toast("Erreur : "+e.message); await load(); return;
+      }
+    }
+    toast("Erreur : enregistrement impossible, réessaie"); await load();
+  })();
+  await saving; saving = null;
 }
 
 const iso = d => d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
