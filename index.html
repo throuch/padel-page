@@ -90,7 +90,7 @@ details summary{cursor:pointer;color:var(--mute);font-size:14px}
         <select id="xtime"></select>
         <button id="xadd">Ajouter</button>
       </div>
-      <p class="sub">N'importe quelle date : si elle est à plus de 7 jours, le robot tire à 01h00 le jour J-7 ; sinon il guette chaque heure qu'un terrain couvert se libère.</p>
+      <p class="sub">N'importe quelle date : si elle est à plus de 7 jours, le robot tire à 01h00 le jour J-7 ; sinon il retente chaque nuit à 01h00 si un terrain couvert s'est libéré, jusqu'à 24 h avant le match.</p>
     </section>
 
     <section class="card">
@@ -102,7 +102,7 @@ details summary{cursor:pointer;color:var(--mute);font-size:14px}
       <h3>Réglages</h3>
       <div class="sub" style="margin-bottom:8px">Jours de match</div>
       <div class="chips" id="days"></div>
-      <div class="row"><div class="t">Guetter aussi les désistements pour les jours réguliers<div class="sub">Si le tir de 01h00 a échoué, le robot retente chaque heure jusqu'au match.</div></div>
+      <div class="row"><div class="t">Guetter aussi les désistements pour les jours réguliers<div class="sub">Si le tir de 01h00 a échoué, le robot retente chaque nuit jusqu'à 24 h avant le match.</div></div>
         <label class="sw"><input type="checkbox" id="hunt"><span></span></label></div>
       <p class="sub" id="rules"></p>
       <details><summary>Connexion GitHub</summary>
@@ -176,9 +176,10 @@ function status(k, hhmm, regular){
   const fire = new Date(start); fire.setDate(fire.getDate()-7); fire.setHours(1,0,0,0);
   if(BOOKED.has(k+" "+hhmm)) return {cls:"ok", txt:"✅ Réservé"};
   if(start < now) return {cls:"", txt:"Passé"};
+  if(start - now < 24*3600e3) return {cls:"", txt:"Moins de 24 h : plus de tentative"};
   if(fire > now) return {cls:"", txt:"Tir le "+fmt(fire)+" à 01h00"};
   if(regular && !cfg.hunt_regular) return {cls:"", txt:"Tir passé (désistements non guettés)"};
-  return {cls:"hunt", txt:"👀 Ouvert : le robot guette chaque heure"};
+  return {cls:"hunt", txt:"👀 Ouvert : le robot retente chaque nuit à 01h00"};
 }
 function upcoming(n){
   const out=[], now=new Date(), d=new Date(); d.setHours(12,0,0,0);
