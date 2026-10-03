@@ -41,6 +41,12 @@ input[type=text],input[type=password]{width:100%;padding:12px;border:1px solid v
 .toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 18px);transform:translateX(-50%);background:var(--ink);color:#fff;padding:10px 16px;border-radius:12px;font-size:14px;opacity:0;transition:.3s;pointer-events:none}
 .toast.show{opacity:1}
 small{color:var(--mute)}
+.add{display:flex;gap:8px;margin-top:10px}
+.add input,.add select{flex:1;min-width:0;padding:10px;border:1px solid var(--line);border-radius:12px;font-size:16px;background:#fff;color:var(--ink)}
+.add button{padding:10px 14px;border:0;border-radius:12px;background:var(--blue2);color:#fff;font-weight:600;font-size:15px}
+.del{border:0;background:#eef2f7;color:var(--mute);width:36px;height:36px;border-radius:10px;font-size:18px;flex:none}
+.badge{display:inline-block;font-size:12px;padding:2px 8px;border-radius:10px;background:#eef2f7;color:var(--mute);margin-top:3px}
+.badge.ok{background:#e3f6ea;color:var(--ok)}.badge.hunt{background:#fff6d6;color:#8a6a00}
 details summary{cursor:pointer;color:var(--mute);font-size:14px}
 </style>
 </head>
@@ -77,6 +83,17 @@ details summary{cursor:pointer;color:var(--mute);font-size:14px}
     </section>
 
     <section class="card">
+      <h3>Réservations ponctuelles</h3>
+      <div id="extras"></div>
+      <div class="add">
+        <input type="date" id="xdate">
+        <select id="xtime"></select>
+        <button id="xadd">Ajouter</button>
+      </div>
+      <p class="sub">N'importe quelle date : si elle est à plus de 7 jours, le robot tire à 01h00 le jour J-7 ; sinon il guette chaque heure qu'un terrain couvert se libère.</p>
+    </section>
+
+    <section class="card">
       <h3>Derniers résultats</h3>
       <div id="results"><small>Chargement…</small></div>
     </section>
@@ -85,6 +102,8 @@ details summary{cursor:pointer;color:var(--mute);font-size:14px}
       <h3>Réglages</h3>
       <div class="sub" style="margin-bottom:8px">Jours de match</div>
       <div class="chips" id="days"></div>
+      <div class="row"><div class="t">Guetter aussi les désistements pour les jours réguliers<div class="sub">Si le tir de 01h00 a échoué, le robot retente chaque heure jusqu'au match.</div></div>
+        <label class="sw"><input type="checkbox" id="hunt"><span></span></label></div>
       <p class="sub" id="rules"></p>
       <details><summary>Connexion GitHub</summary>
         <p><button class="btn" id="logout" style="background:#8a96a5">Changer de dépôt / jeton</button></p>
@@ -99,7 +118,7 @@ const DAYS = ["L","M","M","J","V","S","D"];          // index 0 = lundi (comme P
 const DLONG = ["Lun.","Mar.","Mer.","Jeu.","Ven.","Sam.","Dim."];
 const DPLUR = ["lundis","mardis","mercredis","jeudis","vendredis","samedis","dimanches"];
 const MONTHS = ["janv.","févr.","mars","avr.","mai","juin","juil.","août","sept.","oct.","nov.","déc."];
-let cfg = null, sha = null;
+let cfg = null, sha = null, BOOKED = new Set();   // "YYYY-MM-DD HH:MM" réservés (issues ✅)
 
 function store(k, v){ try{ if(v===undefined) return localStorage.getItem(k); localStorage.setItem(k, v);}catch(e){ return null; } }
 function toast(t){ const el=$("#toast"); el.textContent=t; el.classList.add("show"); clearTimeout(toast.h); toast.h=setTimeout(()=>el.classList.remove("show"),2200); }
@@ -151,14 +170,23 @@ const iso = d => d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+
 const wd = d => (d.getDay()+6)%7;
 const fmt = d => DLONG[wd(d)]+" "+d.getDate()+" "+MONTHS[d.getMonth()];
 
+const at = (k, hhmm) => new Date(k+"T"+hhmm+":00");
+function status(k, hhmm, regular){
+  const start = at(k, hhmm), now = new Date();
+  const fire = new Date(start); fire.setDate(fire.getDate()-7); fire.setHours(1,0,0,0);
+  if(BOOKED.has(k+" "+hhmm)) return {cls:"ok", txt:"✅ Réservé"};
+  if(start < now) return {cls:"", txt:"Passé"};
+  if(fire > now) return {cls:"", txt:"Tir le "+fmt(fire)+" à 01h00"};
+  if(regular && !cfg.hunt_regular) return {cls:"", txt:"Tir passé (désistements non guettés)"};
+  return {cls:"hunt", txt:"👀 Ouvert : le robot guette chaque heure"};
+}
 function upcoming(n){
   const out=[], now=new Date(), d=new Date(); d.setHours(12,0,0,0);
   for(let i=0;i<200 && out.length<n;i++, d.setDate(d.getDate()+1)){
     const k=iso(d);
     if(!cfg.weekdays.includes(wd(d)) || k<cfg.season_from || k>cfg.season_to) continue;
-    const fire=new Date(d); fire.setDate(fire.getDate()-7); fire.setHours(1,0,0,0);
-    if(fire < now) continue;                       // tir déjà passé
-    out.push({d:new Date(d), k, fire});
+    if(at(k, cfg.time) < now) continue;            // match déjà passé
+    out.push({d:new Date(d), k});
   }
   return out;
 }
@@ -173,7 +201,7 @@ function render(){
   for(const s of upcoming(8)){
     const on = !cfg.skip.includes(s.k);
     const row = document.createElement("div"); row.className="row"+(on?"":" off");
-    row.innerHTML = `<div class="t"><b>${fmt(s.d)} · ${cfg.time.replace(":","h")}</b><div class="sub">Tir le ${fmt(s.fire)} à 01h00</div></div>
+    row.innerHTML = `<div class="t"><b>${fmt(s.d)} · ${cfg.time.replace(":","h")}</b><span class="badge ${status(s.k,cfg.time,true).cls}">${status(s.k,cfg.time,true).txt}</span></div>
       <label class="sw"><input type="checkbox" ${on?"checked":""}><span></span></label>`;
     row.querySelector("input").onchange = e => {
       cfg.skip = cfg.skip.filter(x=>x!==s.k && x>=iso(new Date()));
@@ -183,6 +211,8 @@ function render(){
     $("#slots").appendChild(row);
   }
   if(!$("#slots").children.length) $("#slots").innerHTML="<small>Aucun tir à venir dans la saison.</small>";
+  renderExtras();
+  $("#hunt").checked = !!cfg.hunt_regular;
   $("#days").innerHTML="";
   DAYS.forEach((l,i)=>{ const b=document.createElement("button"); b.textContent=l; b.className=cfg.weekdays.includes(i)?"on":"";
     b.onclick=()=>{ cfg.weekdays = cfg.weekdays.includes(i)? cfg.weekdays.filter(x=>x!==i) : [...cfg.weekdays,i].sort();
@@ -190,14 +220,49 @@ function render(){
     $("#days").appendChild(b); });
 }
 
+function renderExtras(){
+  const box = $("#extras"); box.innerHTML = "";
+  const list = (cfg.extra||[]).slice().sort((a,b)=>(a.date+a.time).localeCompare(b.date+b.time));
+  for(const e of list){
+    const st = status(e.date, e.time), d = at(e.date, e.time);
+    const row = document.createElement("div"); row.className = "row";
+    row.innerHTML = `<div class="t"><b>${fmt(d)} · ${e.time.replace(":","h")}</b><br><span class="badge ${st.cls}">${st.txt}</span></div><button class="del" title="Supprimer">✕</button>`;
+    row.querySelector(".del").onclick = () => {
+      cfg.extra = (cfg.extra||[]).filter(x => !(x.date===e.date && x.time===e.time));
+      render(); save("retire "+e.date+" "+e.time);
+    };
+    box.appendChild(row);
+  }
+  if(!list.length) box.innerHTML = "<small>Aucune pour l'instant.</small>";
+}
+(function initAdd(){
+  const sel = $("#xtime");
+  for(let h=8; h<=22; h++) for(const m of ["00","30"]){ const v=String(h).padStart(2,"0")+":"+m;
+    const o=document.createElement("option"); o.value=o.textContent=v; if(v==="20:00") o.selected=true; sel.appendChild(o); }
+  $("#xdate").min = iso(new Date());
+  $("#xadd").onclick = () => {
+    const date = $("#xdate").value, time = $("#xtime").value;
+    if(!date) return toast("Choisis une date");
+    if(at(date, time) < new Date()) return toast("Cette date est passée");
+    cfg.extra = (cfg.extra||[]).filter(x => x.date >= iso(new Date()));   // ménage des dates passées
+    if(cfg.extra.some(x => x.date===date && x.time===time)) return toast("Déjà dans la liste");
+    cfg.extra.push({date, time}); $("#xdate").value = "";
+    render(); save("ajoute "+date+" "+time);
+  };
+})();
+
 async function loadResults(){
   try{
+    const ok = await gh("/issues?labels=reussi&state=all&per_page=50");
+    BOOKED = new Set(ok.map(i => (i.title.match(/\d{4}-\d{2}-\d{2} \d{2}:\d{2}/)||[])[0]).filter(Boolean));
+    render();
     const is = await gh("/issues?labels=robot-padel&state=all&per_page=6");
     $("#results").innerHTML = is.length ? is.map(i=>`<div class="res"><a href="${i.html_url}">${i.title}</a><br><small>${new Date(i.created_at).toLocaleString("fr-FR",{dateStyle:"short",timeStyle:"short"})}</small></div>`).join("")
       : "<small>Aucun tir pour l'instant.</small>";
   }catch(e){ $("#results").innerHTML="<small>Résultats indisponibles ("+e.message+")</small>"; }
 }
 
+$("#hunt").onchange = e => { cfg.hunt_regular = e.target.checked; render(); save(cfg.hunt_regular?"guette les désistements":"ne guette plus les désistements"); };
 $("#enabled").onchange = e => { cfg.enabled = e.target.checked; render(); save(cfg.enabled?"robot activé":"robot en pause"); };
 $("#save").onclick = () => { store("pb_repo", $("#repo").value.trim()); store("pb_tok", $("#tok").value.trim()); start(); };
 $("#logout").onclick = () => { store("pb_tok",""); start(); };
