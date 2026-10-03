@@ -53,12 +53,21 @@ details summary{cursor:pointer;color:var(--mute);font-size:14px}
 <main>
   <section id="setup" class="card" hidden>
     <h3>Connexion GitHub</h3>
-    <p class="sub">À faire une seule fois sur ce téléphone. Le jeton reste stocké ici, nulle part ailleurs.</p>
+    <p class="sub">À faire une seule fois sur ce téléphone. Le jeton est chiffré avec ton PIN et reste ici, nulle part ailleurs.</p>
     <label>Dépôt (ex. throuch/padel-bot)</label>
     <input id="repo" type="text" autocomplete="off" autocapitalize="off">
     <label>Jeton GitHub (fine-grained, accès « Contents » et « Issues » sur ce dépôt)</label>
     <input id="tok" type="password" autocomplete="off">
+    <label>Code PIN (4 à 8 chiffres) : chiffre le jeton sur ce téléphone</label>
+    <input id="newpin" type="password" inputmode="numeric" pattern="[0-9]*" autocomplete="off">
     <button class="btn" id="save">Enregistrer</button>
+  </section>
+
+  <section id="lock" class="card" hidden>
+    <h3>Code PIN</h3>
+    <input id="pin" type="password" inputmode="numeric" pattern="[0-9]*" autocomplete="off">
+    <button class="btn" id="unlock">Déverrouiller</button>
+    <p class="sub" id="pinmsg"></p>
   </section>
 
   <div id="app" hidden>
@@ -87,7 +96,7 @@ details summary{cursor:pointer;color:var(--mute);font-size:14px}
       <div class="chips" id="days"></div>
       <p class="sub" id="rules"></p>
       <details><summary>Connexion GitHub</summary>
-        <p><button class="btn" id="logout" style="background:#8a96a5">Changer de dépôt / jeton</button></p>
+        <p><button class="btn" id="logout" style="background:#8a96a5">Changer de jeton / PIN</button></p>
       </details>
     </section>
   </div>
@@ -99,14 +108,35 @@ const DAYS = ["L","M","M","J","V","S","D"];          // index 0 = lundi (comme P
 const DLONG = ["Lun.","Mar.","Mer.","Jeu.","Ven.","Sam.","Dim."];
 const DPLUR = ["lundis","mardis","mercredis","jeudis","vendredis","samedis","dimanches"];
 const MONTHS = ["janv.","févr.","mars","avr.","mai","juin","juil.","août","sept.","oct.","nov.","déc."];
-let cfg = null, sha = null;
+let cfg = null, sha = null, TOKEN = null;
+const MAX_TRIES = 5;
+
+// Jeton chiffré (AES-GCM, clé dérivée du PIN par PBKDF2) : jamais stocké en clair
+const enc = new TextEncoder(), dec = new TextDecoder();
+const u8 = b => btoa(String.fromCharCode(...new Uint8Array(b)));
+const un8 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+async function keyFromPin(pin, salt){
+  const base = await crypto.subtle.importKey("raw", enc.encode(pin), "PBKDF2", false, ["deriveKey"]);
+  return crypto.subtle.deriveKey({name:"PBKDF2", salt, iterations:310000, hash:"SHA-256"}, base,
+    {name:"AES-GCM", length:256}, false, ["encrypt","decrypt"]);
+}
+async function sealToken(tok, pin){
+  const salt = crypto.getRandomValues(new Uint8Array(16)), iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = await crypto.subtle.encrypt({name:"AES-GCM", iv}, await keyFromPin(pin, salt), enc.encode(tok));
+  store("pb_tok_enc", JSON.stringify({s:u8(salt), i:u8(iv), c:u8(ct)}));
+}
+async function openToken(pin){
+  const o = JSON.parse(store("pb_tok_enc"));
+  const pt = await crypto.subtle.decrypt({name:"AES-GCM", iv:un8(o.i)}, await keyFromPin(pin, un8(o.s)), un8(o.c));
+  return dec.decode(pt);
+}
 
 function store(k, v){ try{ if(v===undefined) return localStorage.getItem(k); localStorage.setItem(k, v);}catch(e){ return null; } }
 function toast(t){ const el=$("#toast"); el.textContent=t; el.classList.add("show"); clearTimeout(toast.h); toast.h=setTimeout(()=>el.classList.remove("show"),2200); }
 
 async function gh(path, opts={}){
   const r = await fetch("https://api.github.com/repos/"+store("pb_repo")+path, {
-    ...opts, headers:{Authorization:"Bearer "+store("pb_tok"), Accept:"application/vnd.github+json", ...(opts.headers||{})}});
+    ...opts, headers:{Authorization:"Bearer "+TOKEN, Accept:"application/vnd.github+json", ...(opts.headers||{})}});
   if(!r.ok) throw new Error(r.status+" "+(await r.text()).slice(0,120));
   return r.json();
 }
@@ -178,14 +208,31 @@ async function loadResults(){
 }
 
 $("#enabled").onchange = e => { cfg.enabled = e.target.checked; render(); save(cfg.enabled?"robot activé":"robot en pause"); };
-$("#save").onclick = () => { store("pb_repo", $("#repo").value.trim()); store("pb_tok", $("#tok").value.trim()); start(); };
-$("#logout").onclick = () => { store("pb_tok",""); start(); };
+$("#save").onclick = async () => {
+  const tok = $("#tok").value.trim(), pin = $("#newpin").value.trim();
+  if(!/^\d{4,8}$/.test(pin)) return toast("PIN : 4 à 8 chiffres");
+  if(!tok) return toast("Colle ton jeton GitHub");
+  store("pb_repo", $("#repo").value.trim()); await sealToken(tok, pin);
+  store("pb_tries","0"); $("#tok").value = $("#newpin").value = ""; TOKEN = tok; start();
+};
+$("#unlock").onclick = async () => {
+  try{ TOKEN = await openToken($("#pin").value.trim()); store("pb_tries","0"); $("#pin").value=""; start(); }
+  catch(e){
+    const n = (+store("pb_tries")||0) + 1; store("pb_tries", String(n)); $("#pin").value="";
+    if(n >= MAX_TRIES){ store("pb_tok_enc",""); store("pb_tries","0"); toast("Trop d'essais : jeton effacé"); start(); }
+    else $("#pinmsg").textContent = "PIN incorrect ("+(MAX_TRIES-n)+" essai(s) restant(s) avant effacement du jeton)";
+  }
+};
+$("#pin").onkeydown = e => { if(e.key==="Enter") $("#unlock").click(); };
+$("#logout").onclick = () => { store("pb_tok_enc",""); TOKEN=null; start(); };
 
+function show(id){ for(const x of ["setup","lock","app"]) $("#"+x).hidden = x!==id; }
 async function start(){
-  const ok = store("pb_repo") && store("pb_tok");
-  $("#setup").hidden = !!ok; $("#app").hidden = !ok;
-  if(!ok){ $("#repo").value = store("pb_repo") || "throuch/padel-bot"; return; }
-  try{ await load(); }catch(e){ toast("Connexion impossible : "+e.message); $("#setup").hidden=false; $("#app").hidden=true; }
+  store("pb_tok","");                                   // ancien jeton en clair : effacé
+  if(!store("pb_repo") || !store("pb_tok_enc")){ show("setup"); $("#repo").value = store("pb_repo") || "throuch/padel-bot"; return; }
+  if(!TOKEN){ show("lock"); $("#pinmsg").textContent=""; setTimeout(()=>$("#pin").focus(),50); return; }
+  show("app");
+  try{ await load(); }catch(e){ toast("Connexion impossible : "+e.message); TOKEN=null; show("lock"); }
 }
 start();
 </script>
