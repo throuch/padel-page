@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0d3b7a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Robot Padel</title>
+<style>
+:root{--blue:#0d3b7a;--blue2:#1d5fb8;--ball:#d7ef3c;--bg:#e9eef5;--card:#fff;--ink:#0f1f33;--mute:#66768a;--line:#e3e8ef;--ok:#1a9a52;--ko:#c8372d}
+*{box-sizing:border-box}
+body{margin:0;font:16px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--ink)}
+header{background:linear-gradient(160deg,var(--blue),var(--blue2));color:#fff;padding:calc(env(safe-area-inset-top,0px) + 28px) 20px 70px;position:relative;overflow:hidden}
+header h1{margin:0 0 6px;font-size:30px}
+header p{margin:0;opacity:.85;font-size:15px}
+.ballico{position:absolute;right:18px;top:calc(env(safe-area-inset-top,0px) + 14px);width:64px;height:64px;border-radius:50%;background:var(--ball);box-shadow:0 4px 14px #0004}
+main{padding:0 16px calc(env(safe-area-inset-bottom,0px) + 40px);margin-top:-48px;position:relative;max-width:560px;margin-left:auto;margin-right:auto}
+.card{background:var(--card);border-radius:20px;padding:18px 20px;margin-bottom:16px;box-shadow:0 2px 10px #0d3b7a14}
+.hero{border:2px solid var(--ball);display:flex;align-items:center;gap:12px}
+.hero .t{flex:1}.hero h2{margin:0;font-size:22px;display:flex;align-items:center;gap:8px}
+.dot{width:12px;height:12px;border-radius:50%;background:#aab4c0}.on .dot{background:var(--ok)}
+.sub{color:var(--mute);font-size:14px}
+h3{margin:0 0 10px;font-size:13px;letter-spacing:.12em;color:var(--mute);text-transform:uppercase;display:flex;align-items:center;gap:8px}
+h3:before{content:"";width:10px;height:10px;border-radius:50%;background:var(--ball)}
+.row{display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--line)}
+.row:last-child{border-bottom:0}.row .t{flex:1}
+.row b{font-size:17px}.row.off b{text-decoration:line-through;color:var(--mute)}
+.sw{position:relative;width:58px;height:34px;flex:none}
+.sw input{opacity:0;width:0;height:0}
+.sw span{position:absolute;inset:0;background:#cfd6df;border-radius:34px;transition:.2s;cursor:pointer}
+.sw span:before{content:"";position:absolute;width:26px;height:26px;left:4px;top:4px;background:#fff;border-radius:50%;transition:.2s;box-shadow:0 1px 3px #0003}
+.sw input:checked+span{background:var(--blue2)}
+.sw input:checked+span:before{transform:translateX(24px);background:var(--ball)}
+.chips{display:flex;gap:5px;flex-wrap:wrap}
+.chips button{width:38px;height:40px;border-radius:12px;border:0;background:#eef2f7;color:var(--ink);font-weight:600;font-size:15px}
+.chips button.on{background:var(--blue2);color:#fff}
+.res{font-size:14px;padding:8px 0;border-bottom:1px solid var(--line)}.res:last-child{border:0}
+.res a{color:inherit;text-decoration:none}
+input[type=text],input[type=password]{width:100%;padding:12px;border:1px solid var(--line);border-radius:12px;font-size:16px;margin:4px 0 10px}
+.btn{width:100%;padding:13px;border:0;border-radius:12px;background:var(--blue2);color:#fff;font-size:16px;font-weight:600}
+.toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 18px);transform:translateX(-50%);background:var(--ink);color:#fff;padding:10px 16px;border-radius:12px;font-size:14px;opacity:0;transition:.3s;pointer-events:none}
+.toast.show{opacity:1}
+small{color:var(--mute)}
+details summary{cursor:pointer;color:var(--mute);font-size:14px}
+</style>
+</head>
+<body>
+<header>
+  <div class="ballico"></div>
+  <h1>Robot Padel</h1>
+  <p>All In Country Club · Grasse<br>Terrains couverts A · B · C · D</p>
+</header>
+<main>
+  <section id="setup" class="card" hidden>
+    <h3>Connexion GitHub</h3>
+    <p class="sub">À faire une seule fois sur ce téléphone. Le jeton reste stocké ici, nulle part ailleurs.</p>
+    <label>Dépôt (ex. throuch/padel-bot)</label>
+    <input id="repo" type="text" autocomplete="off" autocapitalize="off">
+    <label>Jeton GitHub (fine-grained, accès « Contents » et « Issues » sur ce dépôt)</label>
+    <input id="tok" type="password" autocomplete="off">
+    <button class="btn" id="save">Enregistrer</button>
+  </section>
+
+  <div id="app" hidden>
+    <section class="card hero" id="hero">
+      <div class="t">
+        <h2><span class="dot"></span><span id="state">…</span></h2>
+        <div class="sub" id="summary"></div>
+      </div>
+      <label class="sw"><input type="checkbox" id="enabled"><span></span></label>
+    </section>
+
+    <section class="card">
+      <h3>Prochains tirs</h3>
+      <div id="slots"></div>
+      <p class="sub">Décoche un match pour que le robot le saute (vacances, empêchement…).</p>
+    </section>
+
+    <section class="card">
+      <h3>Derniers résultats</h3>
+      <div id="results"><small>Chargement…</small></div>
+    </section>
+
+    <section class="card">
+      <h3>Réglages</h3>
+      <div class="sub" style="margin-bottom:8px">Jours de match</div>
+      <div class="chips" id="days"></div>
+      <p class="sub" id="rules"></p>
+      <details><summary>Connexion GitHub</summary>
+        <p><button class="btn" id="logout" style="background:#8a96a5">Changer de dépôt / jeton</button></p>
+      </details>
+    </section>
+  </div>
+</main>
+<div class="toast" id="toast"></div>
+<script>
+const $ = s => document.querySelector(s);
+const DAYS = ["L","M","M","J","V","S","D"];          // index 0 = lundi (comme Python weekday())
+const DLONG = ["Lun.","Mar.","Mer.","Jeu.","Ven.","Sam.","Dim."];
+const DPLUR = ["lundis","mardis","mercredis","jeudis","vendredis","samedis","dimanches"];
+const MONTHS = ["janv.","févr.","mars","avr.","mai","juin","juil.","août","sept.","oct.","nov.","déc."];
+let cfg = null, sha = null;
+
+function store(k, v){ try{ if(v===undefined) return localStorage.getItem(k); localStorage.setItem(k, v);}catch(e){ return null; } }
+function toast(t){ const el=$("#toast"); el.textContent=t; el.classList.add("show"); clearTimeout(toast.h); toast.h=setTimeout(()=>el.classList.remove("show"),2200); }
+
+async function gh(path, opts={}){
+  const r = await fetch("https://api.github.com/repos/"+store("pb_repo")+path, {
+    ...opts, headers:{Authorization:"Bearer "+store("pb_tok"), Accept:"application/vnd.github+json", ...(opts.headers||{})}});
+  if(!r.ok) throw new Error(r.status+" "+(await r.text()).slice(0,120));
+  return r.json();
+}
+const b64d = s => new TextDecoder().decode(Uint8Array.from(atob(s.replace(/\n/g,"")), c=>c.charCodeAt(0)));
+const b64e = s => btoa(String.fromCharCode(...new TextEncoder().encode(s)));
+
+async function load(){
+  const f = await gh("/contents/planning.json");
+  sha = f.sha; cfg = JSON.parse(b64d(f.content));
+  render(); loadResults();
+}
+async function save(msg){
+  try{
+    const r = await gh("/contents/planning.json", {method:"PUT", body: JSON.stringify({
+      message: "Planning : "+msg, sha, content: b64e(JSON.stringify(cfg, null, 2)+"\n")})});
+    sha = r.content.sha; toast("Enregistré ✓");
+  }catch(e){ toast("Erreur : "+e.message); await load(); }
+}
+
+const iso = d => d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
+const wd = d => (d.getDay()+6)%7;
+const fmt = d => DLONG[wd(d)]+" "+d.getDate()+" "+MONTHS[d.getMonth()];
+
+function upcoming(n){
+  const out=[], now=new Date(), d=new Date(); d.setHours(12,0,0,0);
+  for(let i=0;i<200 && out.length<n;i++, d.setDate(d.getDate()+1)){
+    const k=iso(d);
+    if(!cfg.weekdays.includes(wd(d)) || k<cfg.season_from || k>cfg.season_to) continue;
+    const fire=new Date(d); fire.setDate(fire.getDate()-7); fire.setHours(1,0,0,0);
+    if(fire < now) continue;                       // tir déjà passé
+    out.push({d:new Date(d), k, fire});
+  }
+  return out;
+}
+
+function render(){
+  $("#hero").classList.toggle("on", cfg.enabled);
+  $("#enabled").checked = cfg.enabled;
+  $("#state").textContent = cfg.enabled ? "Robot activé" : "Robot en pause";
+  $("#summary").textContent = "Réserve les "+cfg.weekdays.map(i=>DPLUR[i]).join(" et ")+" à "+cfg.time.replace(":","h")+" · "+cfg.duration+" min";
+  $("#rules").textContent = "Saison du "+cfg.season_from.split("-").reverse().join("/")+" au "+cfg.season_to.split("-").reverse().join("/")+" · plafond "+cfg.max_price+" € · tir à 01h00, 7 jours avant.";
+  $("#slots").innerHTML = "";
+  for(const s of upcoming(8)){
+    const on = !cfg.skip.includes(s.k);
+    const row = document.createElement("div"); row.className="row"+(on?"":" off");
+    row.innerHTML = `<div class="t"><b>${fmt(s.d)} · ${cfg.time.replace(":","h")}</b><div class="sub">Tir le ${fmt(s.fire)} à 01h00</div></div>
+      <label class="sw"><input type="checkbox" ${on?"checked":""}><span></span></label>`;
+    row.querySelector("input").onchange = e => {
+      cfg.skip = cfg.skip.filter(x=>x!==s.k && x>=iso(new Date()));
+      if(!e.target.checked) cfg.skip.push(s.k);
+      cfg.skip.sort(); render(); save((e.target.checked?"réactive ":"saute ")+s.k);
+    };
+    $("#slots").appendChild(row);
+  }
+  if(!$("#slots").children.length) $("#slots").innerHTML="<small>Aucun tir à venir dans la saison.</small>";
+  $("#days").innerHTML="";
+  DAYS.forEach((l,i)=>{ const b=document.createElement("button"); b.textContent=l; b.className=cfg.weekdays.includes(i)?"on":"";
+    b.onclick=()=>{ cfg.weekdays = cfg.weekdays.includes(i)? cfg.weekdays.filter(x=>x!==i) : [...cfg.weekdays,i].sort();
+      render(); save("jours "+cfg.weekdays.join(",")); };
+    $("#days").appendChild(b); });
+}
+
+async function loadResults(){
+  try{
+    const is = await gh("/issues?labels=robot-padel&state=all&per_page=6");
+    $("#results").innerHTML = is.length ? is.map(i=>`<div class="res"><a href="${i.html_url}">${i.title}</a><br><small>${new Date(i.created_at).toLocaleString("fr-FR",{dateStyle:"short",timeStyle:"short"})}</small></div>`).join("")
+      : "<small>Aucun tir pour l'instant.</small>";
+  }catch(e){ $("#results").innerHTML="<small>Résultats indisponibles ("+e.message+")</small>"; }
+}
+
+$("#enabled").onchange = e => { cfg.enabled = e.target.checked; render(); save(cfg.enabled?"robot activé":"robot en pause"); };
+$("#save").onclick = () => { store("pb_repo", $("#repo").value.trim()); store("pb_tok", $("#tok").value.trim()); start(); };
+$("#logout").onclick = () => { store("pb_tok",""); start(); };
+
+async function start(){
+  const ok = store("pb_repo") && store("pb_tok");
+  $("#setup").hidden = !!ok; $("#app").hidden = !ok;
+  if(!ok){ $("#repo").value = store("pb_repo") || "throuch/padel-bot"; return; }
+  try{ await load(); }catch(e){ toast("Connexion impossible : "+e.message); $("#setup").hidden=false; $("#app").hidden=true; }
+}
+start();
+</script>
+</body>
+</html>
