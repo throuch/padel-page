@@ -147,7 +147,7 @@ function render(){
   $("#enabled").checked = cfg.enabled;
   $("#state").textContent = cfg.enabled ? "Robot activé" : "Robot en pause";
   $("#summary").textContent = "Réserve les "+cfg.weekdays.map(i=>DPLUR[i]).join(" et ")+" à "+cfg.time.replace(":","h")+" · "+cfg.duration+" min";
-  $("#rules").textContent = "Saison du "+cfg.season_from.split("-").reverse().join("/")+" au "+cfg.season_to.split("-").reverse().join("/")+" · plafond "+cfg.max_price+" € · tir à 01h00, 7 jours avant.";
+  $("#rules").textContent = "Saison du "+cfg.season_from.split("-").reverse().join("/")+" au "+cfg.season_to.split("-").reverse().join("/")+" · ta part ≤ "+(cfg.max_share??20)+" € (wallet) · tir à 01h00, 7 jours avant.";
   $("#slots").innerHTML = "";
   for(const s of upcoming(8)){
     const on = !cfg.skip.includes(s.k);
