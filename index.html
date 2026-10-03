@@ -44,6 +44,9 @@ small{color:var(--mute)}
 .add{display:flex;gap:8px;margin-top:10px}
 .add input,.add select{flex:1;min-width:0;padding:10px;border:1px solid var(--line);border-radius:12px;font-size:16px;background:#fff;color:var(--ink)}
 .add button{padding:10px 14px;border:0;border-radius:12px;background:var(--blue2);color:#fff;font-weight:600;font-size:15px}
+.seg{display:flex;background:#eef2f7;border-radius:12px;padding:4px;margin-top:12px}
+.seg button{flex:1;border:0;background:none;padding:9px 6px;border-radius:9px;font-size:14px;font-weight:600;color:var(--mute)}
+.seg button.on{background:#fff;color:var(--blue2);box-shadow:0 1px 3px #0002}
 .del{border:0;background:#eef2f7;color:var(--mute);width:36px;height:36px;border-radius:10px;font-size:18px;flex:none}
 .badge{display:inline-block;font-size:12px;padding:2px 8px;border-radius:10px;background:#eef2f7;color:var(--mute);margin-top:3px}
 .badge.ok{background:#e3f6ea;color:var(--ok)}.badge.hunt{background:#fff6d6;color:#8a6a00}
@@ -85,12 +88,16 @@ details summary{cursor:pointer;color:var(--mute);font-size:14px}
     <section class="card">
       <h3>Réservations ponctuelles</h3>
       <div id="extras"></div>
+      <div class="seg" id="xzone">
+        <button data-z="indoor" class="on">Couvert A · B · C · D</button>
+        <button data-z="outdoor">Extérieur 6 · 7</button>
+      </div>
       <div class="add">
         <input type="date" id="xdate">
         <select id="xtime"></select>
         <button id="xadd">Ajouter</button>
       </div>
-      <p class="sub">N'importe quelle date : si elle est à plus de 7 jours, le robot tire à 01h00 le jour J-7 ; sinon il retente chaque nuit à 01h00 si un terrain couvert s'est libéré, jusqu'à 24 h avant le match.</p>
+      <p class="sub">Couvert : terrains A à D · Extérieur : terrains 6 et 7. N'importe quelle date : si elle est à plus de 7 jours, le robot tire à 01h00 le jour J-7 ; sinon il retente chaque nuit à 01h00 si un terrain couvert s'est libéré, jusqu'à 24 h avant le match.</p>
     </section>
 
     <section class="card">
@@ -227,7 +234,8 @@ function renderExtras(){
   for(const e of list){
     const st = status(e.date, e.time), d = at(e.date, e.time);
     const row = document.createElement("div"); row.className = "row";
-    row.innerHTML = `<div class="t"><b>${fmt(d)} · ${e.time.replace(":","h")}</b><br><span class="badge ${st.cls}">${st.txt}</span></div><button class="del" title="Supprimer">✕</button>`;
+    const zl = (e.zone||"indoor")==="outdoor" ? "Extérieur 6-7" : "Couvert A-D";
+    row.innerHTML = `<div class="t"><b>${fmt(d)} · ${e.time.replace(":","h")}</b> <small>${zl}</small><br><span class="badge ${st.cls}">${st.txt}</span></div><button class="del" title="Supprimer">✕</button>`;
     row.querySelector(".del").onclick = () => {
       cfg.extra = (cfg.extra||[]).filter(x => !(x.date===e.date && x.time===e.time));
       render(); save("retire "+e.date+" "+e.time);
@@ -241,14 +249,19 @@ function renderExtras(){
   for(let h=8; h<=22; h++) for(const m of ["00","30"]){ const v=String(h).padStart(2,"0")+":"+m;
     const o=document.createElement("option"); o.value=o.textContent=v; if(v==="20:00") o.selected=true; sel.appendChild(o); }
   $("#xdate").min = iso(new Date());
+  let zone = "indoor";
+  document.querySelectorAll("#xzone button").forEach(b => b.onclick = () => {
+    zone = b.dataset.z;
+    document.querySelectorAll("#xzone button").forEach(x => x.classList.toggle("on", x === b));
+  });
   $("#xadd").onclick = () => {
     const date = $("#xdate").value, time = $("#xtime").value;
     if(!date) return toast("Choisis une date");
     if(at(date, time) < new Date()) return toast("Cette date est passée");
     cfg.extra = (cfg.extra||[]).filter(x => x.date >= iso(new Date()));   // ménage des dates passées
     if(cfg.extra.some(x => x.date===date && x.time===time)) return toast("Déjà dans la liste");
-    cfg.extra.push({date, time}); $("#xdate").value = "";
-    render(); save("ajoute "+date+" "+time);
+    cfg.extra.push({date, time, zone}); $("#xdate").value = "";
+    render(); save("ajoute "+date+" "+time+(zone==="outdoor"?" extérieur":" couvert"));
   };
 })();
 
