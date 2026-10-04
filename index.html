@@ -97,7 +97,7 @@ details summary{cursor:pointer;color:var(--mute);font-size:14px}
         <select id="xtime"></select>
         <button id="xadd">Ajouter</button>
       </div>
-      <p class="sub">Couvert : terrains A à D · Extérieur : terrains 6 et 7. N'importe quelle date : si elle est à plus de 7 jours, le robot tire à 01h00 le jour J-7 ; sinon il retente à 01h00 et vers midi si un terrain s'est libéré, jusqu'à 24 h avant le match.</p>
+      <p class="sub" id="xhelp"></p>
     </section>
 
     <section class="card">
@@ -109,7 +109,7 @@ details summary{cursor:pointer;color:var(--mute);font-size:14px}
       <h3>Réglages</h3>
       <div class="sub" style="margin-bottom:8px">Jours de match</div>
       <div class="chips" id="days"></div>
-      <div class="row"><div class="t">Guetter aussi les désistements pour les jours réguliers<div class="sub">Si le tir de 01h00 a échoué, le robot retente à 01h00 et vers midi, jusqu'à 24 h avant le match.</div></div>
+      <div class="row"><div class="t">Guetter aussi les désistements pour les jours réguliers<div class="sub" id="hunthelp"></div></div>
         <label class="sw"><input type="checkbox" id="hunt"><span></span></label></div>
       <p class="sub" id="rules"></p>
       <details><summary>Connexion GitHub</summary>
@@ -177,16 +177,19 @@ const iso = d => d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+
 const wd = d => (d.getDay()+6)%7;
 const fmt = d => DLONG[wd(d)]+" "+d.getDate()+" "+MONTHS[d.getMonth()];
 
+const OPEN = () => (cfg && cfg.open_at) || "01:00";       // règle du club : heure d'ouverture de J+7
+const H = t => t.replace(":","h");
 const at = (k, hhmm) => new Date(k+"T"+hhmm+":00");
 function status(k, hhmm, regular){
   const start = at(k, hhmm), now = new Date();
-  const fire = new Date(start); fire.setDate(fire.getDate()-7); fire.setHours(1,0,0,0);
+  const [oh, om] = OPEN().split(":").map(Number);
+  const fire = new Date(start); fire.setDate(fire.getDate()-7); fire.setHours(oh,om,0,0);
   if(BOOKED.has(k+" "+hhmm)) return {cls:"ok", txt:"✅ Réservé"};
   if(start < now) return {cls:"", txt:"Passé"};
   if(start - now < 24*3600e3) return {cls:"", txt:"Moins de 24 h : plus de tentative"};
-  if(fire > now) return {cls:"", txt:"Tir le "+fmt(fire)+" à 01h00"};
+  if(fire > now) return {cls:"", txt:"Tir le "+fmt(fire)+" à "+H(OPEN())};
   if(regular && !cfg.hunt_regular) return {cls:"", txt:"Tir passé (désistements non guettés)"};
-  return {cls:"hunt", txt:"👀 Ouvert : le robot retente à 01h00 et vers midi"};
+  return {cls:"hunt", txt:"👀 Ouvert : le robot retente chaque nuit à "+H(OPEN())};
 }
 function upcoming(n){
   const out=[], now=new Date(), d=new Date(); d.setHours(12,0,0,0);
@@ -204,7 +207,7 @@ function render(){
   $("#enabled").checked = cfg.enabled;
   $("#state").textContent = cfg.enabled ? "Robot activé" : "Robot en pause";
   $("#summary").textContent = "Réserve les "+cfg.weekdays.map(i=>DPLUR[i]).join(" et ")+" à "+cfg.time.replace(":","h")+" · "+cfg.duration+" min";
-  $("#rules").textContent = "Saison du "+cfg.season_from.split("-").reverse().join("/")+" au "+cfg.season_to.split("-").reverse().join("/")+" · ta part ≤ "+(cfg.max_share??20)+" € (wallet) · tir à 01h00, 7 jours avant.";
+  $("#rules").textContent = "Saison du "+cfg.season_from.split("-").reverse().join("/")+" au "+cfg.season_to.split("-").reverse().join("/")+" · ta part ≤ "+(cfg.max_share??20)+" € (wallet) · ouverture des réservations à "+H(OPEN())+", 7 jours avant.";
   $("#slots").innerHTML = "";
   for(const s of upcoming(8)){
     const on = !cfg.skip.includes(s.k);
@@ -221,6 +224,8 @@ function render(){
   if(!$("#slots").children.length) $("#slots").innerHTML="<small>Aucun tir à venir dans la saison.</small>";
   renderExtras();
   $("#hunt").checked = !!cfg.hunt_regular;
+  $("#xhelp").textContent = "Couvert : terrains A à D · Extérieur : terrains 6 et 7. N'importe quelle date : si elle est à plus de 7 jours, le robot tire à "+H(OPEN())+" le jour J-7 ; sinon il retente chaque nuit à "+H(OPEN())+" si un terrain s'est libéré, jusqu'à 24 h avant le match.";
+  $("#hunthelp").textContent = "Si le tir de "+H(OPEN())+" a échoué, le robot retente chaque nuit, jusqu'à 24 h avant le match.";
   $("#days").innerHTML="";
   DAYS.forEach((l,i)=>{ const b=document.createElement("button"); b.textContent=l; b.className=cfg.weekdays.includes(i)?"on":"";
     b.onclick=()=>{ cfg.weekdays = cfg.weekdays.includes(i)? cfg.weekdays.filter(x=>x!==i) : [...cfg.weekdays,i].sort();
