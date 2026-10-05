@@ -50,6 +50,14 @@ small{color:var(--mute)}
 .del{border:0;background:#eef2f7;color:var(--mute);width:36px;height:36px;border-radius:10px;font-size:18px;flex:none}
 .badge{display:inline-block;font-size:12px;padding:2px 8px;border-radius:10px;background:#eef2f7;color:var(--mute);margin-top:3px}
 .badge.ok{background:#e3f6ea;color:var(--ok)}.badge.hunt{background:#fff6d6;color:#8a6a00}
+.wx{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;text-align:center}
+.wx div{padding:6px 0;border-radius:12px}
+.wx .d{font-size:12px;color:var(--mute);font-weight:600}
+.wx .i{font-size:24px;line-height:1.3}
+.wx .t{font-size:13px;font-weight:600}.wx .t span{color:var(--mute);font-weight:400;display:block}
+.wx .r{font-size:11px;color:#1d5fb8}
+.wx .m{background:#f4f8d9;outline:2px solid var(--ball)}
+.wx .mt{font-size:10px;color:var(--ink);margin-top:2px}
 details summary{cursor:pointer;color:var(--mute);font-size:14px}
 </style>
 </head>
@@ -77,6 +85,12 @@ details summary{cursor:pointer;color:var(--mute);font-size:14px}
         <div class="sub" id="summary"></div>
       </div>
       <label class="sw"><input type="checkbox" id="enabled"><span></span></label>
+    </section>
+
+    <section class="card">
+      <h3>Météo à Grasse</h3>
+      <div class="wx" id="wx"><small>Chargement…</small></div>
+      <p class="sub" id="wxnote"></p>
     </section>
 
     <section class="card">
@@ -223,7 +237,7 @@ function render(){
     $("#slots").appendChild(row);
   }
   if(!$("#slots").children.length) $("#slots").innerHTML="<small>Aucun tir à venir dans la saison.</small>";
-  renderExtras();
+  renderExtras(); renderWeather();
   $("#hunt").checked = !!cfg.hunt_regular;
   $("#xhelp").textContent = "Couvert : terrains A à D · Extérieur : terrains 6 et 7. N'importe quelle date : si elle est à plus de 7 jours, le robot tire à "+H(OPEN())+" le jour J-7 ; sinon il retente chaque nuit à "+H(OPEN())+" si un terrain s'est libéré, jusqu'à 24 h avant le match.";
   $("#hunthelp").textContent = "Si le tir de "+H(OPEN())+" a échoué, le robot retente chaque nuit, jusqu'à 24 h avant le match.";
@@ -270,6 +284,48 @@ function renderExtras(){
     render(); save("ajoute "+date+" "+time+(zone==="outdoor"?" extérieur":" couvert"));
   };
 })();
+
+// ---------- météo (Open-Meteo, gratuit, sans clé) ----------
+const WMO = c => c===0?"☀️":c<=2?"🌤️":c===3?"☁️":c<=48?"🌫️":c<=57?"🌦️":c<=67?"🌧️":c<=77?"🌨️":c<=82?"🌦️":c<=86?"🌨️":"⛈️";
+const WTXT = c => c===0?"Ensoleillé":c<=2?"Éclaircies":c===3?"Couvert":c<=48?"Brouillard":c<=57?"Bruine":c<=67?"Pluie":c<=77?"Neige":c<=82?"Averses":c<=86?"Averses de neige":"Orage";
+function matchesOn(k){                      // créneaux voulus ce jour-là (réguliers + ponctuels)
+  if(!cfg || !cfg.enabled) return [];
+  const d = new Date(k+"T12:00:00"), out = [];
+  if(cfg.weekdays.includes(wd(d)) && k>=cfg.season_from && k<=cfg.season_to && !cfg.skip.includes(k)) out.push({time:cfg.time, zone:"indoor"});
+  for(const e of cfg.extra||[]) if(e.date===k) out.push({time:e.time, zone:e.zone||"indoor"});
+  return out;
+}
+let WX = null;
+async function loadWeather(){
+  try{
+    const r = await fetch("https://api.open-meteo.com/v1/forecast?latitude=43.6589&longitude=6.9236"
+      + "&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max"
+      + "&hourly=temperature_2m,precipitation_probability,weather_code&timezone=Europe%2FParis&forecast_days=7");
+    if(!r.ok) throw new Error(r.status);
+    WX = await r.json(); WX.at = new Date(); renderWeather();
+  }catch(e){ $("#wx").innerHTML = "<small>Météo indisponible ("+e.message+")</small>"; }
+}
+function renderWeather(){
+  if(!WX) return;
+  const D = WX.daily, H = WX.hourly;
+  $("#wx").innerHTML = D.time.map((k,i) => {
+    const d = new Date(k+"T12:00:00"), ms = matchesOn(k);
+    let extra = "";
+    for(const m of ms){                       // météo à l'heure du match
+      const hi = H.time.indexOf(k+"T"+m.time.slice(0,2)+":00");
+      if(hi >= 0) extra += `<div class="mt" title="${WTXT(H.weather_code[hi])} à ${m.time}">🎾 ${m.time.replace(":","h")}<br>${WMO(H.weather_code[hi])} ${Math.round(H.temperature_2m[hi])}° · ${H.precipitation_probability[hi]}%</div>`;
+    }
+    return `<div class="${ms.length?"m":""}" title="${WTXT(D.weather_code[i])}">
+      <div class="d">${i===0?"Auj.":DLONG[wd(d)].replace(".","")}<br>${d.getDate()}</div>
+      <div class="i">${WMO(D.weather_code[i])}</div>
+      <div class="t">${Math.round(D.temperature_2m_max[i])}° <span>${Math.round(D.temperature_2m_min[i])}°</span></div>
+      <div class="r">💧 ${D.precipitation_probability_max[i]}%</div>${extra}</div>`;
+  }).join("");
+  $("#wxnote").textContent = "Jours de match surlignés, avec la météo à l'heure du match · source Open-Meteo · mis à jour à "
+    + WX.at.toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"});
+}
+loadWeather(); setInterval(loadWeather, 30*60*1000);
+document.addEventListener("visibilitychange", () => { if(!document.hidden && WX && new Date()-WX.at > 15*60*1000) loadWeather(); });
 
 async function loadResults(){
   try{
