@@ -1,0 +1,288 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0d3b7a">
+<title>Robot Padel · Monitor</title>
+<style>
+:root{--blue:#0d3b7a;--blue2:#1d5fb8;--ball:#d7ef3c;--bg:#e9eef5;--card:#fff;--ink:#0f1f33;--mute:#66768a;--line:#e3e8ef;
+  --ok:#1a9a52;--ko:#c8372d;--idle:#9aa6b4;--plan:#1d5fb8}
+*{box-sizing:border-box}
+body{margin:0;font:15px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--ink)}
+header{background:linear-gradient(160deg,var(--blue),var(--blue2));color:#fff;padding:calc(env(safe-area-inset-top,0px) + 22px) 20px 56px}
+header a{color:#fff;opacity:.85;text-decoration:none;font-size:14px}
+header h1{margin:6px 0 0;font-size:26px}
+main{padding:0 16px calc(env(safe-area-inset-bottom,0px) + 40px);margin:-40px auto 0;max-width:760px}
+.card{background:var(--card);border-radius:20px;padding:18px 18px;margin-bottom:16px;box-shadow:0 2px 10px #0d3b7a14}
+h3{margin:0 0 12px;font-size:13px;letter-spacing:.12em;color:var(--mute);text-transform:uppercase;display:flex;align-items:center;gap:8px}
+h3:before{content:"";width:10px;height:10px;border-radius:50%;background:var(--ball)}
+.tiles{display:flex;gap:12px;flex-wrap:wrap}
+.tile{flex:1;min-width:140px;background:#f4f7fb;border-radius:14px;padding:12px 14px}
+.tile b{display:block;font-size:26px;font-variant-numeric:tabular-nums}
+.tile span{color:var(--mute);font-size:13px}
+.gauge{height:10px;background:#e3e8ef;border-radius:6px;margin-top:12px;overflow:hidden;display:flex;gap:2px}
+.gauge i{display:block;height:100%}
+.gauge .used{background:var(--blue2);border-radius:6px 0 0 6px}
+.gauge .proj{background:repeating-linear-gradient(45deg,#9fbbe4 0 4px,#c9d9f0 4px 8px)}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:13px;color:var(--mute);margin:4px 0 10px}
+.legend i{display:inline-block;width:14px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px}
+.seg{display:inline-flex;background:#eef2f7;border-radius:10px;padding:3px;margin-bottom:10px}
+.seg button{border:0;background:none;padding:6px 12px;border-radius:8px;font-size:13px;font-weight:600;color:var(--mute)}
+.seg button.on{background:#fff;color:var(--blue2);box-shadow:0 1px 3px #0002}
+.scroll{overflow-x:auto}
+svg text{font-size:11px;fill:var(--mute)}
+.tip{position:fixed;pointer-events:none;background:var(--ink);color:#fff;font-size:13px;padding:8px 10px;border-radius:10px;max-width:260px;opacity:0;transition:opacity .1s;z-index:9}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{text-align:left;padding:6px 6px;border-bottom:1px solid var(--line);white-space:nowrap}
+th{color:var(--mute);font-weight:600}
+td.num{text-align:right;font-variant-numeric:tabular-nums}
+.err{color:var(--ko)}
+details summary{cursor:pointer;color:var(--mute)}
+small{color:var(--mute)}
+</style>
+</head>
+<body>
+<header>
+  <a href="./">← Robot Padel</a>
+  <h1>Monitor</h1>
+</header>
+<main>
+  <section class="card">
+    <h3>Quota GitHub Actions</h3>
+    <div class="tiles">
+      <div class="tile"><b id="t-used">…</b><span>min utilisées ce mois-ci</span></div>
+      <div class="tile"><b id="t-proj">…</b><span>min estimées d'ici la fin du mois</span></div>
+      <div class="tile"><b id="t-quota">2000</b><span>min gratuites / mois (dépôt privé)</span></div>
+    </div>
+    <div class="gauge" aria-hidden="true"><i class="used" id="g-used"></i><i class="proj" id="g-proj"></i></div>
+    <p><small id="quota-note">Minutes facturées estimées : chaque exécution est arrondie à la minute supérieure.</small></p>
+  </section>
+
+  <section class="card">
+    <h3>Minutes par mois</h3>
+    <div class="scroll"><svg id="months" height="170"></svg></div>
+  </section>
+
+  <section class="card">
+    <h3>Planning d'activité</h3>
+    <div class="seg" id="zoom">
+      <button data-z="night" class="on">Nuit 00:30 – 01:45</button>
+      <button data-z="day">24 h</button>
+    </div>
+    <div class="legend">
+      <span><i style="background:var(--ok)"></i>✅ Réservé</span>
+      <span><i style="background:var(--ko)"></i>❌ Échec</span>
+      <span><i style="background:var(--idle)"></i>Rien à faire / test</span>
+      <span><i style="background:none;border:2px dashed var(--plan)"></i>🕒 Prévu</span>
+    </div>
+    <div class="scroll" id="tlwrap"><svg id="timeline"></svg></div>
+    <p><small>Passé : toutes les exécutions GitHub. Futur : 30 jours, réveil quotidien par cron-job.org 5 min avant l'ouverture (<span id="openat">01:00</span>) ; les nuits sans créneau à réserver, le robot s'arrête en quelques secondes.</small></p>
+  </section>
+
+  <section class="card">
+    <details><summary>Tableau des exécutions</summary>
+      <div class="scroll"><table id="tbl"><thead><tr><th>Date</th><th>Début</th><th>Fin</th><th>Type</th><th>Résultat</th><th class="num">Min</th></tr></thead><tbody></tbody></table></div>
+    </details>
+  </section>
+  <p id="msg"></p>
+</main>
+<div class="tip" id="tip"></div>
+<script>
+const $ = s => document.querySelector(s);
+const QUOTA = 2000;
+const C = {ok:"#1a9a52", ko:"#c8372d", idle:"#9aa6b4", plan:"#1d5fb8"};
+const LBL = {ok:"✅ Réservé", ko:"❌ Échec", idle:"Rien à faire / test", plan:"🕒 Prévu"};
+const DOW = ["dim.","lun.","mar.","mer.","jeu.","ven.","sam."];
+const MONTHS = ["janv.","févr.","mars","avr.","mai","juin","juil.","août","sept.","oct.","nov.","déc."];
+function store(k){ try{ return localStorage.getItem(k); }catch(e){ return null; } }
+const pad = n => String(n).padStart(2,"0");
+const iso = d => d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate());
+const hm = d => pad(d.getHours())+":"+pad(d.getMinutes());
+const hms = d => hm(d)+":"+pad(d.getSeconds());
+const dayLbl = d => DOW[d.getDay()]+" "+d.getDate()+" "+MONTHS[d.getMonth()];
+
+async function gh(path){
+  const r = await fetch("https://api.github.com/repos/"+store("pb_repo")+path,
+    {headers:{Authorization:"Bearer "+store("pb_tok"), Accept:"application/vnd.github+json"}});
+  if(!r.ok) throw new Error(r.status+" "+(await r.text()).slice(0,140));
+  return r.json();
+}
+
+// ---------- données ----------
+async function loadRuns(){
+  const out = [];
+  for(let page=1; page<50; page++){
+    const r = await gh(`/actions/runs?per_page=100&page=${page}`);
+    out.push(...r.workflow_runs);
+    if(r.workflow_runs.length < 100) break;
+  }
+  return out;
+}
+async function loadIssues(){
+  const out = [];
+  for(let page=1; page<20; page++){
+    const r = await gh(`/issues?labels=robot-padel&state=all&per_page=100&page=${page}`);
+    out.push(...r);
+    if(r.length < 100) break;
+  }
+  return out;
+}
+async function loadPlanning(){
+  const f = await gh("/contents/planning.json");
+  return JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(f.content.replace(/\n/g,"")), c=>c.charCodeAt(0))));
+}
+
+function classify(runs, issues){
+  // run id -> résultats (issues dont le corps cite l'URL de l'exécution)
+  const byRun = {};
+  for(const i of issues){
+    const m = (i.body||"").match(/actions\/runs\/(\d+)/);
+    if(m) (byRun[m[1]] = byRun[m[1]] || []).push(i.title);
+  }
+  return runs.filter(r => r.run_started_at).map(r => {
+    const start = new Date(r.run_started_at), end = new Date(r.updated_at);
+    const titles = byRun[r.id] || [];
+    let kind = "idle";
+    if(titles.some(t => t.startsWith("✅"))) kind = "ok";
+    else if(r.conclusion === "failure" || titles.some(t => t.startsWith("❌"))) kind = "ko";
+    const min = Math.max(1, Math.ceil((end - start) / 60000));
+    const type = r.event === "workflow_dispatch" ? (r.display_title && /schedule/.test(r.display_title) ? "planifié" : "déclenché") : (r.event === "schedule" ? "planifié GitHub" : r.event);
+    return {start, end, kind, min, type, titles, url:r.html_url, conclusion:r.conclusion};
+  }).sort((a,b) => a.start - b.start);
+}
+
+function plannedFuture(cfg){
+  // Réveil cron-job.org = open_at - 5 min ; durée estimée selon qu'il y a un créneau à J+7
+  const [oh, om] = (cfg.open_at || "01:00").split(":").map(Number);
+  const poll = cfg.poll_minutes ?? 20;
+  const out = [], now = new Date();
+  for(let i=0; i<=31; i++){
+    const wake = new Date(); wake.setHours(oh, om, 0, 0); wake.setDate(wake.getDate()+i); wake.setMinutes(wake.getMinutes()-5);
+    if(wake < now) continue;
+    const target = new Date(wake); target.setDate(target.getDate()+7);
+    const k = iso(target);
+    const regular = cfg.enabled && (cfg.weekdays||[]).includes((target.getDay()+6)%7)
+      && k >= (cfg.season_from||"0000") && k <= (cfg.season_to||"9999") && !(cfg.skip||[]).includes(k);
+    const extras = cfg.enabled ? (cfg.extra||[]).filter(e => e.date === k) : [];
+    const shot = regular || extras.length;
+    // nuit de tir : réveil -> ouverture (5 min) + guet (jusqu'à poll_minutes, ~ moitié en moyenne) ; sinon ~20 s
+    const durMin = shot ? 5 + Math.round(poll/2) : 0.4;
+    const end = new Date(wake.getTime() + durMin*60000);
+    const what = shot ? "Tir pour le "+dayLbl(target)+" ("+[regular?cfg.time:null, ...extras.map(e=>e.time)].filter(Boolean).join(", ")+")" : "Rien à réserver à J+7 : arrêt immédiat";
+    out.push({start:wake, end, kind:"plan", min: shot ? Math.ceil(durMin) : 1, type:"prévu", titles:[what], shot});
+  }
+  return out;
+}
+
+// ---------- rendu ----------
+const tip = $("#tip");
+function showTip(e, html){ tip.innerHTML = html; tip.style.opacity = 1;
+  const x = Math.min(e.clientX + 12, innerWidth - 270), y = e.clientY + 14; tip.style.left = x+"px"; tip.style.top = y+"px"; }
+function hideTip(){ tip.style.opacity = 0; }
+const tipHtml = r => `<b>${dayLbl(r.start)}</b><br>${hms(r.start)} → ${hms(r.end)} · ${r.min} min facturée${r.min>1?"s":""}<br>${LBL[r.kind]} · ${r.type}${r.titles.length?"<br>"+r.titles.join("<br>"):""}`;
+
+let ZOOM = "night", PAST = [], FUT = [];
+function renderTimeline(){
+  const svg = $("#timeline"), all = [...PAST, ...FUT];
+  const days = [...new Set(all.map(r => iso(r.start)))].sort();
+  const [x0, x1] = ZOOM === "night" ? [0.5, 1.75] : [0, 24];
+  const W = Math.max(340, $("#tlwrap").clientWidth), L = 92, R = 10, ROW = 22, T = 22;
+  const H = T + days.length * ROW + 6;
+  svg.setAttribute("width", W); svg.setAttribute("height", H);
+  const X = h => L + (h - x0) / (x1 - x0) * (W - L - R);
+  let s = "";
+  const step = ZOOM === "night" ? 0.25 : 3;
+  for(let h = Math.ceil(x0/step)*step; h <= x1 + 1e-9; h += step){
+    const lab = pad(Math.floor(h)) + ":" + pad(Math.round((h%1)*60));
+    s += `<line x1="${X(h)}" x2="${X(h)}" y1="${T-4}" y2="${H}" stroke="#e3e8ef"/><text x="${X(h)}" y="12" text-anchor="middle">${lab}</text>`;
+  }
+  const todayK = iso(new Date());
+  days.forEach((k, i) => {
+    const y = T + i * ROW, d = new Date(k+"T12:00:00");
+    const isToday = k === todayK;
+    s += `<text x="4" y="${y+14}" style="${isToday?"fill:#0f1f33;font-weight:700":""}">${dayLbl(d)}</text>`;
+    if(isToday){ const n = new Date(), h = n.getHours() + n.getMinutes()/60;
+      if(h >= x0 && h <= x1) s += `<line x1="${X(h)}" x2="${X(h)}" y1="${y}" y2="${y+ROW}" stroke="#0f1f33" stroke-width="1.5"/>`; }
+  });
+  const marks = [];
+  all.forEach(r => {
+    const i = days.indexOf(iso(r.start)); if(i < 0) return;
+    const hs = r.start.getHours() + r.start.getMinutes()/60 + r.start.getSeconds()/3600;
+    let he = hs + (r.end - r.start)/3600000;
+    if(he < x0 || hs > x1){                     // hors de la vue nuit : petit repère au bord
+      const edge = hs > x1 ? X(x1) - 4 : X(x0);
+      marks.push({r, x:edge, w:4, y:T+i*ROW+5, off:true}); return;
+    }
+    const a = X(Math.max(hs, x0)), b = X(Math.min(he, x1));
+    marks.push({r, x:a, w:Math.max(4, b-a), y:T+i*ROW+5});
+  });
+  marks.forEach((m, j) => {
+    const fill = m.r.kind === "plan" ? (m.r.shot ? "#1d5fb833" : "none") : C[m.r.kind];
+    const stroke = m.r.kind === "plan" ? `stroke="${C.plan}" stroke-width="1.5" stroke-dasharray="3 2"` : `stroke="#fff" stroke-width="1"`;
+    s += `<rect x="${m.x}" y="${m.y}" width="${m.w}" height="12" rx="3" fill="${fill}" ${stroke} ${m.off?'opacity=".5"':''}/>`;
+    s += `<rect data-i="${j}" x="${m.x-6}" y="${m.y-5}" width="${m.w+12}" height="22" fill="transparent" style="cursor:pointer"/>`;
+  });
+  svg.innerHTML = s;
+  svg.querySelectorAll("rect[data-i]").forEach(el => {
+    const r = marks[+el.dataset.i].r;
+    el.addEventListener("pointerenter", e => showTip(e, tipHtml(r)));
+    el.addEventListener("pointermove", e => showTip(e, tipHtml(r)));
+    el.addEventListener("pointerleave", hideTip);
+    el.addEventListener("click", e => { showTip(e, tipHtml(r)); setTimeout(hideTip, 2500); if(r.url && e.detail === 2) open(r.url); });
+  });
+}
+
+function renderMonths(){
+  const now = new Date(), byM = {};
+  for(const r of PAST){ const k = r.start.getFullYear()+"-"+pad(r.start.getMonth()+1); byM[k] = (byM[k]||0) + r.min; }
+  const curK = now.getFullYear()+"-"+pad(now.getMonth()+1);
+  const projCur = FUT.filter(r => r.start.getMonth() === now.getMonth()).reduce((a,r)=>a+r.min,0);
+  const keys = Object.keys(byM).sort(); if(!keys.includes(curK)) keys.push(curK);
+  const W = Math.max(340, keys.length*70+50), H = 170, B = 140, L = 40;
+  const max = Math.max(QUOTA*0.25, ...keys.map(k => (byM[k]||0) + (k===curK?projCur:0)));
+  const Y = v => B - v / max * (B - 14);
+  let s = `<line x1="${L}" x2="${W}" y1="${B}" y2="${B}" stroke="#cfd6df"/><text x="${L-6}" y="${Y(max)+4}" text-anchor="end">${Math.round(max)}</text><text x="${L-6}" y="${B+4}" text-anchor="end">0</text>`;
+  keys.forEach((k, i) => {
+    const x = L + 14 + i*70, used = byM[k]||0, proj = k===curK ? projCur : 0;
+    const [yy, mm] = k.split("-");
+    s += `<rect x="${x}" y="${Y(used)}" width="34" height="${B-Y(used)}" rx="4" fill="${C.plan}"><title>${used} min</title></rect>`;
+    if(proj) s += `<rect x="${x}" y="${Y(used+proj)}" width="34" height="${Y(used)-Y(used+proj)-2}" rx="4" fill="#9fbbe4"><title>+${proj} min estimées</title></rect>`;
+    s += `<text x="${x+17}" y="${Y(used+proj)-5}" text-anchor="middle" style="fill:#0f1f33">${used}${proj?" (+"+proj+")":""}</text>`;
+    s += `<text x="${x+17}" y="${B+16}" text-anchor="middle">${MONTHS[+mm-1]} ${yy.slice(2)}</text>`;
+  });
+  const svg = $("#months"); svg.setAttribute("width", W); svg.innerHTML = s;
+  $("#t-used").textContent = byM[curK]||0;
+  $("#t-proj").textContent = (byM[curK]||0) + projCur;
+  $("#g-used").style.width = Math.min(100, (byM[curK]||0)/QUOTA*100) + "%";
+  $("#g-proj").style.width = Math.min(100, projCur/QUOTA*100) + "%";
+}
+
+function renderTable(){
+  const tb = $("#tbl tbody"); tb.innerHTML = "";
+  for(const r of [...FUT.slice(0,7).reverse(), ...PAST.slice().reverse()]){
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${dayLbl(r.start)}</td><td>${hms(r.start)}</td><td>${hms(r.end)}</td><td>${r.type}</td><td>${LBL[r.kind]}${r.titles.length?" · "+r.titles.join(" · "):""}</td><td class="num">${r.min}</td>`;
+    tb.appendChild(tr);
+  }
+}
+
+document.querySelectorAll("#zoom button").forEach(b => b.onclick = () => {
+  ZOOM = b.dataset.z; document.querySelectorAll("#zoom button").forEach(x => x.classList.toggle("on", x===b)); renderTimeline();
+});
+addEventListener("resize", () => PAST.length + FUT.length && renderTimeline());
+
+(async function(){
+  if(!store("pb_repo") || !store("pb_tok")){ $("#msg").innerHTML = "Ouvre d'abord <a href='./'>la page du robot</a> pour y coller ton jeton."; return; }
+  try{
+    const [runs, issues, cfg] = await Promise.all([loadRuns(), loadIssues(), loadPlanning()]);
+    PAST = classify(runs, issues); FUT = plannedFuture(cfg);
+    $("#openat").textContent = cfg.open_at || "01:00";
+    renderMonths(); renderTimeline(); renderTable();
+  }catch(e){
+    $("#msg").innerHTML = `<span class="err">Impossible de lire l'activité : ${e.message}</span><br><small>Le jeton de la page doit aussi avoir la permission <b>Actions : Read-only</b> sur padel-bot (GitHub → Settings → Developer settings → Fine-grained tokens → Edit).</small>`;
+  }
+})();
+</script>
+</body>
+</html>
