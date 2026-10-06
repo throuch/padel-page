@@ -67,7 +67,7 @@ small{color:var(--mute)}
   <section class="card">
     <h3>Planning d'activité</h3>
     <div class="seg" id="zoom">
-      <button data-z="night" class="on">Nuit 00:30 – 01:45</button>
+      <button data-z="night" class="on">Nuit 00:30 – 04:30</button>
       <button data-z="day">24 h</button>
     </div>
     <div class="legend">
@@ -77,7 +77,7 @@ small{color:var(--mute)}
       <span><i style="background:none;border:2px dashed var(--plan)"></i>🕒 Prévu</span>
     </div>
     <div class="scroll" id="tlwrap"><svg id="timeline"></svg></div>
-    <p><small>Passé : toutes les exécutions GitHub. Futur : 30 jours, réveil quotidien par cron-job.org 5 min avant l'ouverture (<span id="openat">01:00</span>). Les relances que tu programmes dans cron-job.org n'apparaissent qu'une fois exécutées.</small></p>
+    <p><small>Passé : toutes les exécutions GitHub. Futur : 30 jours, aux heures de tes déclenchements cron-job.org déduites de la dernière nuit (<span id="trig">…</span>) ; ouverture du club vers <span id="openat">01:00</span>. Les relances que tu programmes dans cron-job.org n'apparaissent qu'une fois exécutées.</small></p>
   </section>
 
   <section class="card">
@@ -152,27 +152,41 @@ function classify(runs, issues){
   }).sort((a,b) => a.start - b.start);
 }
 
+// Heures de déclenchement : elles vivent dans cron-job.org (illisible d'ici), donc on les déduit des
+// exécutions automatiques récentes : heures (arrondies à 5 min) vues la nuit la plus récente qui en a
+// eu plusieurs, ou à défaut open_at.
+function inferTriggers(past, cfg){
+  const r5 = d => { const m = Math.round((d.getHours()*60 + d.getMinutes())/5)*5; return pad(Math.floor(m/60)%24)+":"+pad(m%60); };
+  const nights = {};
+  for(const r of past.filter(r => r.type === "déclenché" && r.start.getHours() < 6)){
+    (nights[iso(r.start)] = nights[iso(r.start)] || new Set()).add(r5(r.start));
+  }
+  const keys = Object.keys(nights).sort().reverse();
+  const pick = keys.find(k => nights[k].size >= 2) || keys[0];
+  return pick ? [...nights[pick]].sort() : [cfg.open_at || "01:00"];
+}
+let TRIGGERS = [];
 function plannedFuture(cfg){
-  // Réveil cron-job.org = open_at - 5 min ; durée estimée selon qu'il y a un créneau à J+7
-  const [oh, om] = (cfg.open_at || "01:00").split(":").map(Number);
-  const poll = cfg.poll_minutes ?? 20;
   const out = [], now = new Date();
   for(let i=0; i<=31; i++){
-    const wake = new Date(); wake.setHours(oh, om, 0, 0); wake.setDate(wake.getDate()+i); wake.setMinutes(wake.getMinutes()-5);
-    if(wake < now) continue;
-    const target = new Date(wake); target.setDate(target.getDate()+7);
-    const k = iso(target);
-    const regular = cfg.enabled && (cfg.weekdays||[]).includes((target.getDay()+6)%7)
-      && k >= (cfg.season_from||"0000") && k <= (cfg.season_to||"9999") && !(cfg.skip||[]).includes(k);
-    const extras = cfg.enabled ? (cfg.extra||[]).filter(e => e.date === k) : [];
-    const shot = regular || extras.length;
-    // nuit de tir : réveil -> ouverture (5 min) + guet (jusqu'à poll_minutes, ~ moitié en moyenne) ; sinon ~20 s
-    const durMin = shot ? 5 + Math.round(poll/2) : 0.4;
-    const end = new Date(wake.getTime() + durMin*60000);
-    const what = shot ? "Tir pour le "+dayLbl(target)+" ("+[regular?cfg.time:null, ...extras.map(e=>e.time)].filter(Boolean).join(", ")+")" : "Rien à réserver à J+7 : arrêt immédiat";
-    out.push({start:wake, end, kind:"plan", min: shot ? Math.ceil(durMin) : 1, type:"prévu", titles:[what], shot});
+    for(const hhmm of TRIGGERS){
+      const [h, m] = hhmm.split(":").map(Number);
+      const wake = new Date(); wake.setDate(wake.getDate()+i); wake.setHours(h, m, 0, 0);
+      if(wake < now) continue;
+      const target = new Date(wake); target.setDate(target.getDate()+7);
+      const k = iso(target);
+      const regular = cfg.enabled && (cfg.weekdays||[]).includes((target.getDay()+6)%7)
+        && k >= (cfg.season_from||"0000") && k <= (cfg.season_to||"9999") && !(cfg.skip||[]).includes(k);
+      const extras = cfg.enabled ? (cfg.extra||[]).filter(e => e.date === k) : [];
+      const shot = regular || extras.length;
+      // quelques secondes par exécution (relance) ; GitHub facture au minimum 1 min
+      const end = new Date(wake.getTime() + (shot ? 60 : 25)*1000);
+      const what = shot ? "Créneau voulu le "+dayLbl(target)+" ("+[regular?cfg.time:null, ...extras.map(e=>e.time)].filter(Boolean).join(", ")+")"
+                        : "Rien à réserver à J+7 : arrêt immédiat";
+      out.push({start:wake, end, kind:"plan", min:1, type:"prévu ("+hhmm+")", titles:[what], shot});
+    }
   }
-  return out;
+  return out.sort((a,b) => a.start - b.start);
 }
 
 // ---------- rendu ----------
@@ -186,13 +200,13 @@ let ZOOM = "night", PAST = [], FUT = [];
 function renderTimeline(){
   const svg = $("#timeline"), all = [...PAST, ...FUT];
   const days = [...new Set(all.map(r => iso(r.start)))].sort();
-  const [x0, x1] = ZOOM === "night" ? [0.5, 1.75] : [0, 24];
-  const W = Math.max(340, $("#tlwrap").clientWidth), L = 92, R = 10, ROW = 22, T = 22;
+  const [x0, x1] = ZOOM === "night" ? [0.5, 4.5] : [0, 24];
+  const W = Math.max(340, $("#tlwrap").clientWidth), L = 92, R = 24, ROW = 22, T = 22;
   const H = T + days.length * ROW + 6;
   svg.setAttribute("width", W); svg.setAttribute("height", H);
   const X = h => L + (h - x0) / (x1 - x0) * (W - L - R);
   let s = "";
-  const step = ZOOM === "night" ? 0.25 : 3;
+  const step = ZOOM === "night" ? 0.5 : 3;
   for(let h = Math.ceil(x0/step)*step; h <= x1 + 1e-9; h += step){
     const lab = pad(Math.floor(h)) + ":" + pad(Math.round((h%1)*60));
     s += `<line x1="${X(h)}" x2="${X(h)}" y1="${T-4}" y2="${H}" stroke="#e3e8ef"/><text x="${X(h)}" y="12" text-anchor="middle">${lab}</text>`;
@@ -276,7 +290,8 @@ addEventListener("resize", () => PAST.length + FUT.length && renderTimeline());
   if(!store("pb_repo") || !store("pb_tok")){ $("#msg").innerHTML = "Ouvre d'abord <a href='./'>la page du robot</a> pour y coller ton jeton."; return; }
   try{
     const [runs, issues, cfg] = await Promise.all([loadRuns(), loadIssues(), loadPlanning()]);
-    PAST = classify(runs, issues); FUT = plannedFuture(cfg);
+    PAST = classify(runs, issues); TRIGGERS = inferTriggers(PAST, cfg); FUT = plannedFuture(cfg);
+    $("#trig").textContent = TRIGGERS.join(", ");
     $("#openat").textContent = cfg.open_at || "01:00";
     renderMonths(); renderTimeline(); renderTable();
   }catch(e){
