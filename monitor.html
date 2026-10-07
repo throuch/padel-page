@@ -40,6 +40,16 @@ td.num{text-align:right;font-variant-numeric:tabular-nums}
 .err{color:var(--ko)}
 details summary{cursor:pointer;color:var(--mute)}
 small{color:var(--mute)}
+svg{display:block}
+@media (max-width:480px){
+  header{padding-left:16px;padding-right:16px}
+  main{padding-left:10px;padding-right:10px}
+  .card{padding:16px 14px;border-radius:18px}
+  .tiles{gap:8px}
+  .tile{min-width:120px;padding:10px 12px}
+  .tile b{font-size:22px}
+  .legend{gap:10px;font-size:12px}
+}
 </style>
 </head>
 <body>
@@ -201,12 +211,13 @@ function renderTimeline(){
   const svg = $("#timeline"), all = [...PAST, ...FUT];
   const days = [...new Set(all.map(r => iso(r.start)))].sort();
   const [x0, x1] = ZOOM === "night" ? [0.5, 4.5] : [0, 24];
-  const W = Math.max(340, $("#tlwrap").clientWidth), L = 92, R = 24, ROW = 22, T = 22;
+  const W = Math.max(280, $("#tlwrap").clientWidth), narrow = W < 520;
+  const L = narrow ? 76 : 92, R = narrow ? 16 : 24, ROW = 22, T = 22;
   const H = T + days.length * ROW + 6;
   svg.setAttribute("width", W); svg.setAttribute("height", H);
   const X = h => L + (h - x0) / (x1 - x0) * (W - L - R);
   let s = "";
-  const step = ZOOM === "night" ? 0.5 : 3;
+  const step = ZOOM === "night" ? (narrow ? 1 : 0.5) : (narrow ? 6 : 3);   // moins de graduations sur téléphone
   for(let h = Math.ceil(x0/step)*step; h <= x1 + 1e-9; h += step){
     const lab = pad(Math.floor(h)) + ":" + pad(Math.round((h%1)*60));
     s += `<line x1="${X(h)}" x2="${X(h)}" y1="${T-4}" y2="${H}" stroke="#e3e8ef"/><text x="${X(h)}" y="12" text-anchor="middle">${lab}</text>`;
@@ -247,13 +258,14 @@ function renderTimeline(){
   });
 }
 
+const svgBox = sel => Math.max(260, $(sel).parentElement.clientWidth);   // largeur dispo dans la carte
 function renderMonths(){
   const now = new Date(), byM = {};
   for(const r of PAST){ const k = r.start.getFullYear()+"-"+pad(r.start.getMonth()+1); byM[k] = (byM[k]||0) + r.min; }
   const curK = now.getFullYear()+"-"+pad(now.getMonth()+1);
   const projCur = FUT.filter(r => r.start.getMonth() === now.getMonth()).reduce((a,r)=>a+r.min,0);
   const keys = Object.keys(byM).sort(); if(!keys.includes(curK)) keys.push(curK);
-  const W = Math.max(340, keys.length*70+50), H = 170, B = 140, L = 40;
+  const W = Math.max(svgBox("#months"), keys.length*70+50), H = 170, B = 140, L = 40;
   const max = Math.max(QUOTA*0.25, ...keys.map(k => (byM[k]||0) + (k===curK?projCur:0)));
   const Y = v => B - v / max * (B - 14);
   let s = `<line x1="${L}" x2="${W}" y1="${B}" y2="${B}" stroke="#cfd6df"/><text x="${L-6}" y="${Y(max)+4}" text-anchor="end">${Math.round(max)}</text><text x="${L-6}" y="${B+4}" text-anchor="end">0</text>`;
@@ -284,7 +296,7 @@ function renderTable(){
 document.querySelectorAll("#zoom button").forEach(b => b.onclick = () => {
   ZOOM = b.dataset.z; document.querySelectorAll("#zoom button").forEach(x => x.classList.toggle("on", x===b)); renderTimeline();
 });
-addEventListener("resize", () => PAST.length + FUT.length && renderTimeline());
+addEventListener("resize", () => { if(PAST.length + FUT.length){ renderMonths(); renderTimeline(); } });
 
 (async function(){
   if(!store("pb_repo") || !store("pb_tok")){ $("#msg").innerHTML = "Ouvre d'abord <a href='./'>la page du robot</a> pour y coller ton jeton."; return; }

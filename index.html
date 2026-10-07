@@ -59,6 +59,38 @@ small{color:var(--mute)}
 .wx .m{background:#f4f8d9;outline:2px solid var(--ball)}
 .wx .mt{font-size:10px;color:var(--ink);margin-top:2px}
 details summary{cursor:pointer;color:var(--mute);font-size:14px}
+.row .badge{margin-top:4px}
+.wx .r{white-space:nowrap}
+input[type=date]{-webkit-appearance:none;appearance:none;min-height:42px}
+.add select,.add button{min-height:42px}
+/* tablette : un peu plus large, sans changer le rendu PC */
+@media (min-width:640px) and (max-width:1024px){
+  main{max-width:640px}
+}
+/* smartphone */
+@media (max-width:480px){
+  header{padding-left:16px;padding-right:16px}
+  header h1{font-size:26px}
+  .ballico{width:52px;height:52px}
+  main{padding-left:10px;padding-right:10px}
+  .card{padding:16px 14px;border-radius:18px}
+  .wx{gap:2px}
+  .wx div{padding:5px 0}
+  .wx .i{font-size:20px}
+  .wx .t{font-size:12px}
+  .wx .r{font-size:10px}
+  .wx .mt{font-size:10px;line-height:1.3}
+  .wx .mt .sep{display:none}
+  .wx .mt .pp{display:block}
+  .hero h2{font-size:20px}
+  .row b{font-size:16px}
+  .seg button{font-size:13px;padding:9px 4px}
+}
+@media (max-width:380px){
+  .add{flex-wrap:wrap}
+  .add input{flex-basis:100%}
+  .chips button{width:36px}
+}
 </style>
 </head>
 <body>
@@ -227,7 +259,7 @@ function render(){
   for(const s of upcoming(8)){
     const on = !cfg.skip.includes(s.k);
     const row = document.createElement("div"); row.className="row"+(on?"":" off");
-    row.innerHTML = `<div class="t"><b>${fmt(s.d)} · ${cfg.time.replace(":","h")}</b><span class="badge ${status(s.k,cfg.time,true).cls}">${status(s.k,cfg.time,true).txt}</span></div>
+    row.innerHTML = `<div class="t"><b>${fmt(s.d)} · ${cfg.time.replace(":","h")}</b><br><span class="badge ${status(s.k,cfg.time,true).cls}">${status(s.k,cfg.time,true).txt}</span></div>
       <label class="sw"><input type="checkbox" ${on?"checked":""}><span></span></label>`;
     row.querySelector("input").onchange = e => {
       cfg.skip = cfg.skip.filter(x=>x!==s.k && x>=iso(new Date()));
@@ -313,7 +345,7 @@ function renderWeather(){
     let extra = "";
     for(const m of ms){                       // météo à l'heure du match
       const hi = H.time.indexOf(k+"T"+m.time.slice(0,2)+":00");
-      if(hi >= 0) extra += `<div class="mt" title="${WTXT(H.weather_code[hi])} à ${m.time}">🎾 ${m.time.replace(":","h")}<br>${WMO(H.weather_code[hi])} ${Math.round(H.temperature_2m[hi])}° · ${H.precipitation_probability[hi]}%</div>`;
+      if(hi >= 0) extra += `<div class="mt" title="${WTXT(H.weather_code[hi])} à ${m.time}">🎾 ${m.time.replace(":","h")}<br>${WMO(H.weather_code[hi])} ${Math.round(H.temperature_2m[hi])}°<span class="sep"> · </span><span class="pp">${H.precipitation_probability[hi]}%</span></div>`;
     }
     return `<div class="${ms.length?"m":""}" title="${WTXT(D.weather_code[i])}">
       <div class="d">${i===0?"Auj.":DLONG[wd(d)].replace(".","")}<br>${d.getDate()}</div>
