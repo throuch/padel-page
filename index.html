@@ -139,7 +139,7 @@ input[type=date]{-webkit-appearance:none;appearance:none;min-height:42px}
       <div id="extras"></div>
       <div class="seg" id="xzone">
         <button data-z="indoor" class="on">Couvert A · B · C · D</button>
-        <button data-z="outdoor">Extérieur 6 · 7</button>
+        <button data-z="outdoor">Extérieur 6 · 7 · 8</button>
       </div>
       <div class="add">
         <input type="date" id="xdate">
@@ -274,7 +274,7 @@ function render(){
   if(!$("#slots").children.length) $("#slots").innerHTML="<small>Aucun tir à venir dans la saison.</small>";
   renderExtras(); renderWeather();
   $("#hunt").checked = !!cfg.hunt_regular;
-  $("#xhelp").textContent = "Couvert : terrains A à D · Extérieur : terrains 6 et 7. N'importe quelle date : si elle est à plus de 7 jours, le robot tire à "+H(OPEN())+" le jour J-7 ; sinon il retente chaque nuit à "+H(OPEN())+" si un terrain s'est libéré, jusqu'à 24 h avant le match.";
+  $("#xhelp").textContent = "Couvert : terrains A à D · Extérieur : terrains 6, 7 et 8. N'importe quelle date : si elle est à plus de 7 jours, le robot tire à "+H(OPEN())+" le jour J-7 ; sinon il retente chaque nuit à "+H(OPEN())+" si un terrain s'est libéré, jusqu'à 24 h avant le match.";
   $("#hunthelp").textContent = "Si le tir de "+H(OPEN())+" a échoué, le robot retente chaque nuit, jusqu'à 24 h avant le match.";
   $("#days").innerHTML="";
   DAYS.forEach((l,i)=>{ const b=document.createElement("button"); b.textContent=l; b.className=cfg.weekdays.includes(i)?"on":"";
@@ -289,7 +289,7 @@ function renderExtras(){
   for(const e of list){
     const st = status(e.date, e.time), d = at(e.date, e.time);
     const row = document.createElement("div"); row.className = "row";
-    const zl = (e.zone||"indoor")==="outdoor" ? "Extérieur 6-7" : "Couvert A-D";
+    const zl = (e.zone||"indoor")==="outdoor" ? "Extérieur 6-7-8" : "Couvert A-D";
     row.innerHTML = `<div class="t"><b>${fmt(d)} · ${e.time.replace(":","h")}</b> <small>${zl}</small><br><span class="badge ${st.cls}">${st.txt}</span></div><button class="del" title="Supprimer">✕</button>`;
     row.querySelector(".del").onclick = () => {
       cfg.extra = (cfg.extra||[]).filter(x => !(x.date===e.date && x.time===e.time));
