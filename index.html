@@ -66,6 +66,7 @@ details summary{cursor:pointer;color:var(--mute);font-size:14px}
 .wx .r{white-space:nowrap}
 input[type=date]{-webkit-appearance:none;appearance:none;min-height:42px}
 .add select,.add button{min-height:42px}
+#rtime{padding:8px 10px;border:1px solid var(--line);border-radius:12px;font-size:16px;background:#fff;color:var(--ink);min-height:42px}
 /* tablette : un peu plus large, sans changer le rendu PC */
 @media (min-width:640px) and (max-width:1024px){
   main{max-width:640px}
@@ -158,6 +159,8 @@ input[type=date]{-webkit-appearance:none;appearance:none;min-height:42px}
       <h3>Réglages</h3>
       <div class="sub" style="margin-bottom:8px">Jours de match</div>
       <div class="chips" id="days"></div>
+      <div class="row"><div class="t">Heure des matchs réguliers<div class="sub">90 min, terrains couverts A à D</div></div>
+        <select id="rtime"></select></div>
       <div class="row"><div class="t">Guetter aussi les désistements pour les jours réguliers<div class="sub" id="hunthelp"></div></div>
         <label class="sw"><input type="checkbox" id="hunt"><span></span></label></div>
       <p class="sub" id="rules"></p>
@@ -175,14 +178,14 @@ const DAYS = ["L","M","M","J","V","S","D"];          // index 0 = lundi (comme P
 const DLONG = ["Lun.","Mar.","Mer.","Jeu.","Ven.","Sam.","Dim."];
 const DPLUR = ["lundis","mardis","mercredis","jeudis","vendredis","samedis","dimanches"];
 const MONTHS = ["janv.","févr.","mars","avr.","mai","juin","juil.","août","sept.","oct.","nov.","déc."];
-let cfg = null, sha = null, BOOKED = new Set();   // "YYYY-MM-DD HH:MM" réservés (issues ✅)
+let cfg = null, base = null, sha = null, BOOKED = new Set();   // "YYYY-MM-DD HH:MM" réservés (issues ✅)
 
 function store(k, v){ try{ if(v===undefined) return localStorage.getItem(k); localStorage.setItem(k, v);}catch(e){ return null; } }
 function toast(t){ const el=$("#toast"); el.textContent=t; el.classList.add("show"); clearTimeout(toast.h); toast.h=setTimeout(()=>el.classList.remove("show"),2200); }
 
 async function gh(path, opts={}){
   const r = await fetch("https://api.github.com/repos/"+store("pb_repo")+path, {
-    ...opts, headers:{Authorization:"Bearer "+store("pb_tok"), Accept:"application/vnd.github+json", ...(opts.headers||{})}});
+    cache:"no-store", ...opts, headers:{Authorization:"Bearer "+store("pb_tok"), Accept:"application/vnd.github+json", ...(opts.headers||{})}});
   if(!r.ok) throw new Error(r.status+" "+(await r.text()).slice(0,120));
   return r.json();
 }
@@ -191,11 +194,12 @@ const b64e = s => btoa(String.fromCharCode(...new TextEncoder().encode(s)));
 
 async function load(){
   const f = await gh("/contents/planning.json");
-  sha = f.sha; cfg = JSON.parse(b64d(f.content));
+  sha = f.sha; cfg = JSON.parse(b64d(f.content)); base = structuredClone(cfg);
   render(); loadResults();
 }
 // Clics rapides : on regroupe les changements (0,8 s) et on n'envoie qu'une écriture à la fois.
-// Si GitHub répond 409 (version du fichier changée entre-temps), on relit sa version et on renvoie la nôtre.
+// À chaque écriture, on relit la version actuelle de planning.json et on n'y applique QUE les réglages
+// modifiés sur cette page : une page restée ouverte n'écrase plus ce qui a changé ailleurs (code, autre appareil).
 let saveTimer = null, saveMsgs = [], saving = null;
 function save(msg){
   saveMsgs.push(msg); clearTimeout(saveTimer);
@@ -208,13 +212,14 @@ async function flush(){
   saving = (async () => {
     for(let attempt = 0; attempt < 3; attempt++){
       try{
+        const f = await gh("/contents/planning.json"), remote = JSON.parse(b64d(f.content));
+        for(const k of new Set([...Object.keys(cfg), ...Object.keys(base)]))
+          if(JSON.stringify(cfg[k]) !== JSON.stringify(base[k])){ if(k in cfg) remote[k] = cfg[k]; else delete remote[k]; }
         const r = await gh("/contents/planning.json", {method:"PUT", body: JSON.stringify({
-          message: "Planning : "+msg, sha, content: b64e(JSON.stringify(cfg, null, 2)+"\n")})});
-        sha = r.content.sha; toast("Enregistré ✓"); return;
+          message: "Planning : "+msg, sha: f.sha, content: b64e(JSON.stringify(remote, null, 2)+"\n")})});
+        sha = r.content.sha; cfg = remote; base = structuredClone(remote); render(); toast("Enregistré ✓"); return;
       }catch(e){
-        if(e.message.startsWith("409") || e.message.startsWith("422")){
-          sha = (await gh("/contents/planning.json")).sha; continue;   // garde nos réglages, nouvelle version
-        }
+        if(e.message.startsWith("409") || e.message.startsWith("422")) continue;   // version changée : on recommence
         toast("Erreur : "+e.message); await load(); return;
       }
     }
@@ -222,6 +227,10 @@ async function flush(){
   })();
   await saving; saving = null;
 }
+// Retour sur la page (appli remise au premier plan) : on relit les réglages s'il n'y a rien en attente.
+document.addEventListener("visibilitychange", () => {
+  if(document.visibilityState === "visible" && cfg && !saving && !saveMsgs.length) load().catch(()=>{});
+});
 
 const iso = d => d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
 const wd = d => (d.getDay()+6)%7;
@@ -276,6 +285,7 @@ function render(){
   $("#hunt").checked = !!cfg.hunt_regular;
   $("#xhelp").textContent = "Couvert : terrains A à D · Extérieur : terrains 6, 7 et 8. N'importe quelle date : si elle est à plus de 7 jours, le robot tire à "+H(OPEN())+" le jour J-7 ; sinon il retente chaque nuit à "+H(OPEN())+" si un terrain s'est libéré, jusqu'à 24 h avant le match.";
   $("#hunthelp").textContent = "Si le tir de "+H(OPEN())+" a échoué, le robot retente chaque nuit, jusqu'à 24 h avant le match.";
+  $("#rtime").value = cfg.time;
   $("#days").innerHTML="";
   DAYS.forEach((l,i)=>{ const b=document.createElement("button"); b.textContent=l; b.className=cfg.weekdays.includes(i)?"on":"";
     b.onclick=()=>{ cfg.weekdays = cfg.weekdays.includes(i)? cfg.weekdays.filter(x=>x!==i) : [...cfg.weekdays,i].sort();
@@ -303,6 +313,10 @@ function renderExtras(){
   const sel = $("#xtime");
   for(let h=8; h<=22; h++) for(const m of ["00","30"]){ const v=String(h).padStart(2,"0")+":"+m;
     const o=document.createElement("option"); o.value=o.textContent=v; if(v==="20:00") o.selected=true; sel.appendChild(o); }
+  const rt = $("#rtime");
+  for(let h=8; h<=22; h++) for(const m of ["00","30"]){ const v=String(h).padStart(2,"0")+":"+m;
+    const o=document.createElement("option"); o.value=o.textContent=v; rt.appendChild(o); }
+  rt.onchange = () => { cfg.time = rt.value; render(); save("heure des matchs réguliers "+rt.value); };
   $("#xdate").min = iso(new Date());
   let zone = "indoor";
   document.querySelectorAll("#xzone button").forEach(b => b.onclick = () => {
