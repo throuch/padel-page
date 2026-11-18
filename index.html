@@ -66,7 +66,7 @@ details summary{cursor:pointer;color:var(--mute);font-size:14px}
 .wx .r{white-space:nowrap}
 input[type=date]{-webkit-appearance:none;appearance:none;min-height:42px}
 .add select,.add button{min-height:42px}
-#rtime{padding:8px 10px;border:1px solid var(--line);border-radius:12px;font-size:16px;background:#fff;color:var(--ink);min-height:42px}
+#rtime,#ftime{padding:8px 10px;border:1px solid var(--line);border-radius:12px;font-size:16px;background:#fff;color:var(--ink);min-height:42px}
 /* tablette : un peu plus large, sans changer le rendu PC */
 @media (min-width:640px) and (max-width:1024px){
   main{max-width:640px}
@@ -161,6 +161,8 @@ input[type=date]{-webkit-appearance:none;appearance:none;min-height:42px}
       <div class="chips" id="days"></div>
       <div class="row"><div class="t">Heure des matchs réguliers<div class="sub">90 min, terrains couverts A à D</div></div>
         <select id="rtime"></select></div>
+      <div class="row"><div class="t">Heure de repli<div class="sub">Tentée si l'heure principale échoue, mêmes règles. Jamais deux résas le même jour.</div></div>
+        <select id="ftime"></select></div>
       <div class="row"><div class="t">Guetter aussi les désistements pour les jours réguliers<div class="sub" id="hunthelp"></div></div>
         <label class="sw"><input type="checkbox" id="hunt"><span></span></label></div>
       <p class="sub" id="rules"></p>
@@ -265,7 +267,7 @@ function render(){
   $("#hero").classList.toggle("on", cfg.enabled);
   $("#enabled").checked = cfg.enabled;
   $("#state").textContent = cfg.enabled ? "Robot activé" : "Robot en pause";
-  $("#summary").textContent = "Réserve les "+cfg.weekdays.map(i=>DPLUR[i]).join(" et ")+" à "+cfg.time.replace(":","h")+" · "+cfg.duration+" min";
+  $("#summary").textContent = "Réserve les "+cfg.weekdays.map(i=>DPLUR[i]).join(" et ")+" à "+cfg.time.replace(":","h")+(cfg.fallback_time?" (repli "+cfg.fallback_time.replace(":","h")+")":"")+" · "+cfg.duration+" min";
   $("#rules").textContent = "Saison du "+cfg.season_from.split("-").reverse().join("/")+" au "+cfg.season_to.split("-").reverse().join("/")+" · ta part ≤ "+(cfg.max_share??20)+" € (wallet) · ouverture des réservations à "+H(OPEN())+", 7 jours avant.";
   $("#slots").innerHTML = "";
   for(const s of upcoming(8)){
@@ -286,6 +288,7 @@ function render(){
   $("#xhelp").textContent = "Couvert : terrains A à D · Extérieur : terrains 6, 7 et 8. N'importe quelle date : si elle est à plus de 7 jours, le robot tire à "+H(OPEN())+" le jour J-7 ; sinon il retente chaque nuit à "+H(OPEN())+" si un terrain s'est libéré, jusqu'à 24 h avant le match.";
   $("#hunthelp").textContent = "Si le tir de "+H(OPEN())+" a échoué, le robot retente chaque nuit, jusqu'à 24 h avant le match.";
   $("#rtime").value = cfg.time;
+  $("#ftime").value = cfg.fallback_time || "";
   $("#days").innerHTML="";
   DAYS.forEach((l,i)=>{ const b=document.createElement("button"); b.textContent=l; b.className=cfg.weekdays.includes(i)?"on":"";
     b.onclick=()=>{ cfg.weekdays = cfg.weekdays.includes(i)? cfg.weekdays.filter(x=>x!==i) : [...cfg.weekdays,i].sort();
@@ -313,6 +316,12 @@ function renderExtras(){
   const sel = $("#xtime");
   for(let h=8; h<=22; h++) for(const m of ["00","30"]){ const v=String(h).padStart(2,"0")+":"+m;
     const o=document.createElement("option"); o.value=o.textContent=v; if(v==="20:00") o.selected=true; sel.appendChild(o); }
+  const ft = $("#ftime");
+  { const o=document.createElement("option"); o.value=""; o.textContent="Aucune"; ft.appendChild(o); }
+  for(let h=8; h<=22; h++) for(const m of ["00","30"]){ const v=String(h).padStart(2,"0")+":"+m;
+    const o=document.createElement("option"); o.value=o.textContent=v; ft.appendChild(o); }
+  ft.onchange = () => { if(ft.value) cfg.fallback_time = ft.value; else delete cfg.fallback_time;
+    render(); save(ft.value ? "heure de repli "+ft.value : "sans heure de repli"); };
   const rt = $("#rtime");
   for(let h=8; h<=22; h++) for(const m of ["00","30"]){ const v=String(h).padStart(2,"0")+":"+m;
     const o=document.createElement("option"); o.value=o.textContent=v; rt.appendChild(o); }
